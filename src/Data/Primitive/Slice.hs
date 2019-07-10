@@ -1,4 +1,7 @@
+{-# language BangPatterns #-}
 {-# language DuplicateRecordFields #-}
+{-# language RankNTypes #-}
+{-# language TypeFamilies #-}
 
 module Data.Primitive.Slice
   ( -- * Types
@@ -15,7 +18,10 @@ import Prelude hiding (length)
 
 import Data.Primitive (SmallArray,SmallMutableArray)
 import Data.Primitive.Unlifted.Array (UnliftedArray,MutableUnliftedArray)
+import Data.Primitive.Unlifted.Class (PrimUnlifted)
+import GHC.Exts (IsList)
 
+import qualified GHC.Exts as Exts
 import qualified Data.Primitive as PM
 import qualified Data.Primitive.Unlifted.Array as PM
 
@@ -24,6 +30,12 @@ data UnliftedVector a = UnliftedVector
   , offset :: !Int
   , length :: !Int
   }
+
+instance PrimUnlifted a => IsList (UnliftedVector a) where
+  type Item (UnliftedVector a) = a
+  fromList = unslicedUnliftedVector . Exts.fromList
+  fromListN n = unslicedUnliftedVector . Exts.fromListN n
+  toList = foldrUnliftedVector (:) []
 
 data MutableUnliftedVector s a = MutableUnliftedVector
   { array :: !(MutableUnliftedArray s a)
@@ -57,4 +69,11 @@ unslicedSmallVector x = SmallVector
   , length = PM.sizeofSmallArray x
   }
 
-
+foldrUnliftedVector :: forall a b. PrimUnlifted a => (a -> b -> b) -> b -> UnliftedVector a -> b
+{-# INLINE foldrUnliftedVector #-}
+foldrUnliftedVector f z (UnliftedVector arr off0 len) = go off0
+  where
+    !end = len + off0
+    go !i
+      | end > i = f (PM.indexUnliftedArray arr i) (go (i+1))
+      | otherwise = z
